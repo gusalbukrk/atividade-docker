@@ -1,0 +1,70 @@
+version: '3.9'  # 3.9 é a versão mais atual; declarar a `version` é opcional desde v1.27.0
+
+services:
+  db:
+    # usar uma tag semantica — por exemplo, `8.0.31` — é melhor do que usar a tag `latest`
+    # pois, a tag `latest` é mutável e geralemente aponta para versão sendo que está desenvolvida atualmente
+    # e, por isso, há a possibilidade de *breaking changes* a qualquer momento
+    image: mysql:8.0.31
+    # MySQL 8 usa o `caching_sha2_password` como o plugin de autenticação padrão
+    # use `mysql> select user,plugin,host from mysql.user where user='userexample';` p/ checar o plugin de autenticação
+    # a linha abaixo era necessária quando o PHP/WordPress ainda não suportava esse novo plugin
+    # command: '--default-authentication-plugin=mysql_native_password'
+    volumes:
+      - db_data:/var/lib/mysql # configura a persistência do diretório em que é salvo os arquivos da database
+    # container sempre será reiniciado quando é automaticamente cessado (por example, quando ocorre um erro)
+    # quando cessado manualmente, só será reiniciado quandos estes são manualemente reinicializados:
+    # - o Docker daemon (`systemctl restart docker`)
+    # - o própio container (`docker container restart container-name`)
+    restart: always
+    environment:
+      # - MYSQL_ROOT_PASSWORD=rootpassword # variável obrigatória
+      # o argumento é o path em que o arquivo contendo a senha será salvo dento do container
+      # para verificar execute: `docker exec -it container-name bash`, `echo $(cat run/secrets/db_root_password)`
+      - MYSQL_ROOT_PASSWORD_FILE=/run/secrets/db_root_password
+      # following variables must match respectively WORDPRESS_DB_NAME, WORDPRESS_DB_USER, WORDPRESS_DB_PASSWORD:
+      - MYSQL_DATABASE=wordpress # variável opcional, permite criar uma database durante o startup
+      - MYSQL_USER=admin # variável opcional, cria um usuário p/ MYSQL_DATABASE com privilégios de administrador
+      # - MYSQL_PASSWORD=passwordexample # variável obrigatória caso MYSQL_USER esteja presente
+      - MYSQL_PASSWORD_FILE=/run/secrets/db_password
+    expose: # database será acessível através da porta 3306/33060 somente por outros containers que estão na mesma rede 
+      - 3306 # porta padrão do protocolo clássico do MySQL
+      # porta do procotolo X do MySQL é calculada multiplicando por 10 a porta que está sendo usada p/ o protocolo clásico
+      # - 33060
+    secrets: # define os secrets disponíveis para os container(s) desse serviço
+      - db_root_password
+      - db_password
+
+  wp:
+    image: wordpress:6.0.2
+    volumes:
+      - wp_data:/var/www/html # configura a persistência do DocumentRoot do WordPress
+    ports:
+      - 80:80 # mapeia a porta 80 do host para a porta 80 do wordpress container
+    restart: always
+    environment:
+      - WORDPRESS_DB_HOST=db # deve conter o nome do host e a porta do serviço MySQL (`db` é o nome do serviço)
+      # following variables must match respectively MYSQL_DATABASE, MYSQL_USER, MYSQL_PASSWORD:
+      - WORDPRESS_DB_NAME=wordpress # database deve existir no servidor MySQL
+      - WORDPRESS_DB_USER=admin
+      # - WORDPRESS_DB_PASSWORD=passwordexample
+      - WORDPRESS_DB_PASSWORD_FILE=/run/secrets/db_password
+    secrets:
+      - db_root_password
+      - db_password
+
+  admin:
+    image: phpmyadmin:5.2.0
+    restart: always
+    ports:
+      - 82:80 # mapeia a porta 82 do host para a porta 80 do phpmyadmin container
+
+secrets: # define os secrets disponíveis para os serviços declarados nesse arquivo
+  db_root_password:
+    file: db_root_password.txt
+  db_password:
+    file: db_password.txt
+
+volumes: # quando a propriedade está vazia, o volume será armazenado no diretório `/var/lib/docker/volumes`
+  db_data:
+  wp_data:
